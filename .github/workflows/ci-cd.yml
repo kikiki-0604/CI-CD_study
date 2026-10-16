@@ -29,7 +29,7 @@ concurrency:
 jobs:
   backend:
     name: backend (build & test)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -54,7 +54,7 @@ jobs:
 
   frontend:
     name: frontend (typecheck & build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -71,7 +71,7 @@ jobs:
   # イメージを作る。PRではビルドできるかの確認だけ、mainではECRへの登録まで行う。
   docker:
     name: docker images (build & push)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [backend, frontend]
     outputs:
       deploy: ${{ steps.gate.outputs.deploy }}
@@ -145,7 +145,7 @@ jobs:
   # EC2にデプロイする(mainへのpushで、キーが登録されているときだけ)
   deploy:
     name: deploy to EC2
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [docker]
     if: needs.docker.outputs.deploy == 'true'
     env:
