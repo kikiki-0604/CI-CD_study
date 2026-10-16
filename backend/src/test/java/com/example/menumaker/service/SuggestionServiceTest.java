@@ -38,8 +38,9 @@ import static org.junit.jupiter.api.Assertions.fail;
  *   1. 問1・問2を読む(特に「準備 → 実行 → 検証」の3段構成)
  *   2. 問3から順に、TODO のヒントを読みながら実装する(易しい順に並べてある)
  *   3. 1問書くたびに、そのテストだけ実行して緑になるのを確認する
- *        (全体実行: gradle test / 1問だけ: gradle test --tests "*SuggestionServiceTest.問3_*"  ← 問の番号のあとの _ を忘れずに)
+ *        (実行コマンドは docs/workshop-guide.md のステップ5-1。1問だけ実行するときは、最後に --tests "*SuggestionServiceTest.問3_*" を付ける。問の番号のあとの _ を忘れずに)
  *   4. 実装を見たいときは SuggestionService.java を読む(各問に「見るところ」を書いてある)
+ *   5. Java の書き方が分からないときは docs/java-test-primer.md を見る
  *
  * ■ テストの基本形(AAA)
  *   準備(Arrange): モックに「こう返せ」と指示する

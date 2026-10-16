@@ -21,10 +21,11 @@ on:
 env:
   AWS_REGION: ap-northeast-1
 
-# 同じブランチで連続pushしたとき、古い実行を止めて最新だけ動かす
+# 同じ PR で連続 push したとき、古い実行を止めて最新だけ動かす。
+# main への実行は止めない(デプロイの途中で中断されないように、順番に実行する)。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:

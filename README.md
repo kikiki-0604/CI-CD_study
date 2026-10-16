@@ -29,16 +29,25 @@ flowchart LR
 
 ## 最初に読むもの
 
-1. **[勉強会の進め方(ステップごとの手順)](docs/workshop-guide.md)** ← まずここ。当日はこの手順書の順に進めます
-2. [CI/CD とは? このパイプラインの仕組み](docs/cicd-overview.md) ← 手を動かしながら、わからなくなったら読む
-3. [困ったとき(よくあるエラーと対処)](docs/troubleshooting.md)
+1. **[勉強会の進め方(ステップごとの手順)](docs/workshop-guide.md)** ← **まずここ**。当日はこの手順書の順に進めます(Git や GitHub の用語の説明も、最初に載っています)
+2. [テストコードの読み方・書き方(Java 入門メモ)](docs/java-test-primer.md) ← Java に慣れていなくても、**これを見ながら**テストを書けます
+3. [CI/CD とは? このパイプラインの仕組み](docs/cicd-overview.md) ← 手を動かしながら、分からなくなったら読む
+4. [困ったとき(よくあるエラーと対処)](docs/troubleshooting.md) ← エラーが出たら、まずここ
 
 ## 事前に確認しておくこと(各自のPC)
 
-- [ ] **GitHub のアカウント**を持っている(チームで1人以上。リポジトリを作る人)
+- [ ] **GitHub のアカウント**を、**3人全員**が持っている(ログインできる状態にしておく)
 - [ ] **Git** が使える(`git --version` でバージョンが表示される)
 - [ ] **Docker Desktop** がインストールされ、起動している(`docker --version` でバージョンが表示される)
-- [ ] テキストエディタ(VS Code など)が使える
+- [ ] テキストエディタ(**VS Code** がおすすめ)が使える
+- [ ] (**おすすめ**)当日の待ち時間を減らすため、事前に次を実行しておく(各自のPCで、ターミナルから)
+
+  ```
+  docker pull gradle:8.9-jdk17
+  docker pull mysql:8.0
+  docker pull node:20-alpine
+  docker pull eclipse-temurin:17-jre
+  ```
 
 Java や Node.js を個別にインストールする必要はありません。実行環境はすべてコンテナの中に入っています。
 
