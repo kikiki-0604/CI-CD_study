@@ -1,0 +1,13 @@
+# frontend
+node_modules/
+dist/
+
+# backend
+backend/build/
+backend/.gradle/
+backend/.env
+
+# misc
+*.log
+.DS_Store
+frontend/tsconfig.tsbuildinfo

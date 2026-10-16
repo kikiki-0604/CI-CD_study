@@ -1,0 +1,21 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/menu_maker}
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:password}
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+
+aws:
+  region: ${AWS_REGION:us-east-1}
+  bedrock:
+    model-id: ${BEDROCK_MODEL_ID:}
+
+logging:
+  level:
+    com.example.menumaker: INFO

@@ -1,0 +1,198 @@
+# CI/CD パイプライン
+#
+#   push / PR ─▶ [backend テスト] ┐
+#                [frontend ビルド] ┴▶ [docker イメージ作成] ─▶ [deploy (mainのみ)]
+#
+# - PR や main への push では、テストとビルドを毎回自動で実行する(CI)。
+# - main に push されたときだけ、イメージをECRに登録し、EC2へデプロイする(CD)。
+# - テストが1つでも失敗すると、後ろのジョブは実行されない(= 壊れたものは本番に出ない)。
+#
+# 必要な設定(リポジトリの Settings → Secrets and variables → Actions → Secrets):
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY ... 配布されたチーム用のキー
+#   (未登録のときは、デプロイだけがスキップされる。テストとビルドは動く)
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  AWS_REGION: ap-northeast-1
+
+# 同じブランチで連続pushしたとき、古い実行を止めて最新だけ動かす
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (build & test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build and test
+        run: gradle build --no-daemon
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-report
+          path: backend/build/reports/tests/test
+          if-no-files-found: ignore
+
+  frontend:
+    name: frontend (typecheck & build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  # イメージを作る。PRではビルドできるかの確認だけ、mainではECRへの登録まで行う。
+  docker:
+    name: docker images (build & push)
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    outputs:
+      deploy: ${{ steps.gate.outputs.deploy }}
+      team: ${{ steps.team.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # デプロイするかどうかを決める: main への push で、かつ AWS のキーが登録されているとき
+      - name: Decide whether to deploy
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          HAS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
+        run: |
+          if [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
+            if [ "$HAS_KEY" = "true" ]; then
+              echo "deploy=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::AWS のキー(Secrets)が未登録のため、デプロイをスキップしました。docs/workshop-guide.md のステップ4を確認してください。"
+            fi
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials
+        if: steps.gate.outputs.deploy == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # チーム名は、キーの持ち主(IAMユーザー名)から決まる。例: workshop-user01
+      - name: Resolve team name
+        id: team
+        if: steps.gate.outputs.deploy == 'true'
+        run: |
+          TEAM=$(aws sts get-caller-identity --query Arn --output text | sed 's#.*/##')
+          echo "name=$TEAM" >> "$GITHUB_OUTPUT"
+          echo "Team: $TEAM"
+
+      - name: Login to Amazon ECR
+        id: ecr
+        if: steps.gate.outputs.deploy == 'true'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (and push) backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: ${{ steps.gate.outputs.deploy == 'true' }}
+          # PRのときはECRを使わないので、ビルド確認用の仮の名前にする
+          tags: ${{ steps.gate.outputs.deploy == 'true' && format('{0}/{1}-backend:{2}', steps.ecr.outputs.registry, steps.team.outputs.name, github.sha) || 'backend:ci' }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build (and push) frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile.prod
+          push: ${{ steps.gate.outputs.deploy == 'true' }}
+          tags: ${{ steps.gate.outputs.deploy == 'true' && format('{0}/{1}-frontend:{2}', steps.ecr.outputs.registry, steps.team.outputs.name, github.sha) || 'frontend:ci' }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  # EC2にデプロイする(mainへのpushで、キーが登録されているときだけ)
+  deploy:
+    name: deploy to EC2
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: needs.docker.outputs.deploy == 'true'
+    env:
+      TEAM: ${{ needs.docker.outputs.team }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # チームのEC2は、タグ Owner=<チーム名> で見つける
+      - name: Find the team's EC2 instance
+        id: ec2
+        run: |
+          read -r ID IP < <(aws ec2 describe-instances \
+            --filters "Name=tag:Owner,Values=$TEAM" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].[InstanceId,PublicIpAddress]' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::EC2 (Owner=$TEAM) が見つかりません"; exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "ip=$IP" >> "$GITHUB_OUTPUT"
+
+      # EC2上の /opt/app/deploy.sh にコミットSHAを渡す(ECRからpullして入れ替える)
+      - name: Deploy via SSM
+        run: |
+          CID=$(aws ssm send-command \
+            --instance-ids "${{ steps.ec2.outputs.id }}" \
+            --document-name AWS-RunShellScript \
+            --parameters "commands=[\"/opt/app/deploy.sh ${{ github.sha }}\"]" \
+            --query Command.CommandId --output text)
+          aws ssm wait command-executed --command-id "$CID" --instance-id "${{ steps.ec2.outputs.id }}" || true
+          STATUS=$(aws ssm get-command-invocation --command-id "$CID" --instance-id "${{ steps.ec2.outputs.id }}" --query Status --output text)
+          aws ssm get-command-invocation --command-id "$CID" --instance-id "${{ steps.ec2.outputs.id }}" \
+            --query '[StandardOutputContent,StandardErrorContent]' --output text
+          [ "$STATUS" = "Success" ] || { echo "::error::deploy failed: $STATUS"; exit 1; }
+
+      # 本当に動いているか、外から確認する(失敗したらジョブも失敗)
+      - name: Health check
+        run: |
+          URL="http://${{ steps.ec2.outputs.ip }}"
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$URL/api/records" || true)
+            echo "try $i: $CODE"
+            [ "$CODE" = "200" ] && { echo "OK: $URL/"; echo "### デプロイ完了 🚀  $URL/" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+            sleep 10
+          done
+          echo "::error::health check failed: $URL"; exit 1

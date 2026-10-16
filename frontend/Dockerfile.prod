@@ -1,0 +1,17 @@
+# 本番(EC2)用のイメージ。開発用の Dockerfile(Viteの開発サーバー)とは別物。
+#   1) ビルド用のステージで静的ファイルを作る
+#   2) 軽い nginx のイメージに、その成果物だけを載せる
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+# 空文字 = 同じドメインの /api に問い合わせる(nginx がバックエンドへ中継する)
+ARG VITE_API_BASE_URL=""
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
